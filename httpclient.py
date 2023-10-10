@@ -33,21 +33,35 @@ class HTTPResponse(object):
         self.body = body
 
 class HTTPClient(object):
-    #def get_host_port(self,url):
+    def get_host_port(self,url):
+        
+        urlInfo = urllib.parse.urlparse(url)
+        host = urlInfo.hostname
+        port = urlInfo.port
+
+        # if port is empty
+        if port == None:
+            if urlInfo.scheme == "https": # if scheme is https
+                port = 403
+            else: # port default to 80
+                port = 80
+        return host, port
+
 
     def connect(self, host, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((host, port))
-        return None
+        return self.socket
 
     def get_code(self, data):
-        return None
+        #print("GETCODE FUNCTION", data)
+        return int(data.split("\r\n")[0].split(" ")[1])
 
     def get_headers(self,data):
-        return None
+        return data.split("\r\n\r\n")[0]
 
     def get_body(self, data):
-        return None
+        return data.split("\r\n\r\n")[1]
     
     def sendall(self, data):
         self.socket.sendall(data.encode('utf-8'))
@@ -70,11 +84,52 @@ class HTTPClient(object):
     def GET(self, url, args=None):
         code = 500
         body = ""
+
+        # get the host and port
+        host, port = self.get_host_port(url)
+        # connect to server
+        conn = self.connect(host, port)
+        # send data to server
+        # https://stackoverflow.com/questions/11443669/how-to-interpret-connection-keep-alive-close
+        request = f"GET {url} HTTP/1.1\r\nHost: {host}\r\n\r\nConnection: {'close'}\r\n"
+        #print("GET REQUEST:", request)
+        self.sendall(request)
+        # receive data from server
+        data = self.recvall(conn)
+        code = self.get_code(data)
+        body = self.get_body(data)
+
+        # close socket
+        self.close()
+
         return HTTPResponse(code, body)
 
     def POST(self, url, args=None):
         code = 500
         body = ""
+
+        # get the host and port
+        host, port = self.get_host_port(url)
+        # connect to server
+        conn = self.connect(host, port)
+        # send data to server
+        request = f"POST {url} HTTP/1.1\r\nHost: {host}\r\nConnection: {'close'}\r\nContent-Type: {'application/x-www-form-urlencoded'}\r\n"
+        # https://stackoverflow.com/questions/14551194/how-are-parameters-sent-in-an-http-post-request
+        # https://sentry.io/answers/how-are-parameters-sent-in-an-http-post-request/
+        argString = ""
+        if args != None:
+            for key in args:
+                argString += f"{key}={args[key]}&"
+            argString = argString[:-1]
+        request += f"Content-Length: {len(argString)}\r\n\r\n{argString}"
+        #print("POST REQUEST:", request)
+        self.sendall(request)
+        data = self.recvall(conn)
+        code = self.get_code(data)
+        body = self.get_body(data)
+
+        self.close()
+
         return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
